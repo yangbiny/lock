@@ -1,10 +1,13 @@
 package com.impassive.zookeeper;
 
 import java.io.IOException;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,12 +32,9 @@ public class ZookeeperLockConfig {
           new ZooKeeper(
               connectionString,
               1000 * 3600,
-              new Watcher() {
-                @Override
-                public void process(WatchedEvent watchedEvent) {
-                  if (watchedEvent.getState() == KeeperState.SyncConnected) {
-                    COUNT_DOWN_LATCH.countDown();
-                  }
+              watchedEvent -> {
+                if (watchedEvent.getState() == KeeperState.SyncConnected) {
+                  COUNT_DOWN_LATCH.countDown();
                 }
               });
       COUNT_DOWN_LATCH.await();
@@ -44,6 +44,19 @@ public class ZookeeperLockConfig {
     return zooKeeper;
   }
 
-
-
+  @Bean
+  public ExecutorService executorService() {
+    return new ThreadPoolExecutor(
+        10,
+        20,
+        3600,
+        TimeUnit.SECONDS,
+        new ArrayBlockingQueue<>(1000),
+        r -> {
+          Thread thread = new Thread(r);
+          thread.setName("zookeeper");
+          return thread;
+        },
+        new AbortPolicy());
+  }
 }
