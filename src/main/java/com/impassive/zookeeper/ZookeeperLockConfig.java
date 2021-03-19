@@ -7,6 +7,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
 import java.util.concurrent.TimeUnit;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
@@ -22,7 +23,7 @@ public class ZookeeperLockConfig {
   private static final CountDownLatch COUNT_DOWN_LATCH = new CountDownLatch(1);
 
   @Value("${zk.url}")
-  private String connectionString;
+  private @Setter String connectionString;
 
   @Bean
   public ZooKeeper zooKeeperClient() {
