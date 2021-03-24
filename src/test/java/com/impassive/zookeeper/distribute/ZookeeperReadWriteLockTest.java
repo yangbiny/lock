@@ -28,11 +28,14 @@ public class ZookeeperReadWriteLockTest {
   public void test1() throws InterruptedException {
     CountDownLatch count = new CountDownLatch(100);
     for (int i = 0; i < 100; i++) {
-      final ReadLock readLock = zookeeperLock.readLock();
-      readLock.lock();
-      cnt++;
-      count.countDown();
-      readLock.unLock();
+      executorService.submit(
+          () -> {
+            final ReadLock readLock = zookeeperLock.readLock();
+            readLock.lock();
+            cnt++;
+            count.countDown();
+            readLock.unLock();
+          });
     }
     count.await();
     System.out.println(cnt);

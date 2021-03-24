@@ -1,11 +1,17 @@
 package com.impassive.zookeeper.distribute;
 
-import com.impassive.Lock;
 import java.nio.charset.StandardCharsets;
-import lombok.AllArgsConstructor;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
@@ -17,10 +23,6 @@ import org.apache.zookeeper.data.Stat;
  */
 @Slf4j
 public class ZookeeperReadWriteLock {
-
-  private static final String LOCK_READ_PATH = "/lock/read";
-
-  private static final String LOCK_WRITE_PATH = "/lock/write";
 
   private final ReadLock readLock;
 
@@ -40,9 +42,11 @@ public class ZookeeperReadWriteLock {
   }
 
   @Slf4j
-  public static class ReadLock implements Lock {
+  public static class ReadLock extends AbstractZookeeperLock {
 
     private final ZooKeeper zooKeeperClient;
+
+    private final Map<Thread, Node> lockPath = new ConcurrentHashMap<>();
 
     public ReadLock(ZooKeeper zooKeeperClient) {
       this.zooKeeperClient = zooKeeperClient;
@@ -51,17 +55,11 @@ public class ZookeeperReadWriteLock {
     @Override
     public void lock() {
       try {
-        final String path =
-            zooKeeperClient.create(
-                LOCK_READ_PATH,
-                LOCK_READ_PATH.getBytes(StandardCharsets.UTF_8),
-                Ids.OPEN_ACL_UNSAFE,
-                CreateMode.EPHEMERAL_SEQUENTIAL);
-
-        final Stat exists = zooKeeperClient.exists(path, false);
-        if (exists != null) {
-          log.info("exits : {}", exists);
+        final List<String> children = zooKeeperClient.getChildren(LOCK_PARENT, false);
+        if (CollectionUtils.isNotEmpty(children)) {
+          checkAndParkThread(children, false);
         }
+        addLock();
       } catch (KeeperException e) {
         e.printStackTrace();
       } catch (InterruptedException e) {
@@ -69,12 +67,49 @@ public class ZookeeperReadWriteLock {
       }
     }
 
+    private void addLock() throws KeeperException, InterruptedException {
+      final String path =
+          zooKeeperClient.create(
+              LOCK_READ_PATH,
+              LOCK_READ_PATH.getBytes(StandardCharsets.UTF_8),
+              Ids.OPEN_ACL_UNSAFE,
+              CreateMode.EPHEMERAL_SEQUENTIAL);
+      final Stat exists = zooKeeperClient.exists(path, this);
+      if (exists == null) {
+        // TODO 获取锁失败的操作
+        return;
+      }
+      lockPath.put(Thread.currentThread(), new Node(path, exists.getVersion()));
+    }
+
     @Override
-    public void unLock() {}
+    public void unLock() {
+      final Thread thread = Thread.currentThread();
+      final Node node = lockPath.get(thread);
+      if (node == null || StringUtils.isEmpty(node.path)) {
+        // TODO 说明没有获取到锁，却在释放锁，需要抛出异常
+        return;
+      }
+      try {
+        zooKeeperClient.delete(node.path, node.version);
+        wakeUp();
+      } catch (InterruptedException e) {
+        log.error("unlock error : {},{}", thread, node, e);
+      } catch (KeeperException e) {
+        log.error("keeper error ", e);
+      }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+      if (event.getType() == EventType.NodeDeleted) {
+        // 释放了一个读锁
+      }
+    }
   }
 
   @Slf4j
-  public static class WriteLock implements Lock {
+  public static class WriteLock extends AbstractZookeeperLock {
 
     private final ZooKeeper zooKeeperClient;
 
@@ -83,9 +118,36 @@ public class ZookeeperReadWriteLock {
     }
 
     @Override
-    public void lock() {}
+    public void lock() {
+      try {
+        final List<String> children = zooKeeperClient.getChildren(LOCK_WRITE_PATH, false);
+        checkAndParkThread(children, true);
+      } catch (KeeperException e) {
+        log.error("keeper error", e);
+      } catch (InterruptedException e) {
+        log.error("unlock write lock error : ", e);
+      }
+    }
 
     @Override
-    public void unLock() {}
+    public void unLock() {
+
+    }
+
+    @Override
+    public void process(WatchedEvent event) {}
+  }
+
+  @Getter
+  static class Node {
+
+    private final String path;
+
+    private final Integer version;
+
+    public Node(String path, Integer version) {
+      this.path = path;
+      this.version = version;
+    }
   }
 }
