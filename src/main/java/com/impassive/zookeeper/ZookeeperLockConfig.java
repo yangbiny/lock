@@ -48,8 +48,8 @@ public class ZookeeperLockConfig {
   @Bean
   public ExecutorService executorService() {
     return new ThreadPoolExecutor(
-        10,
-        20,
+        100,
+        100,
         3600,
         TimeUnit.SECONDS,
         new ArrayBlockingQueue<>(1000),
