@@ -2,6 +2,7 @@ package com.impassive.zookeeper.distribute;
 
 import com.impassive.zookeeper.ZookeeperLockConfig;
 import com.impassive.zookeeper.distribute.ZookeeperReadWriteLock.ReadLock;
+import com.impassive.zookeeper.distribute.ZookeeperReadWriteLock.WriteLock;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -14,7 +15,7 @@ public class ZookeeperReadWriteLockTest {
 
   private ExecutorService executorService;
 
-  private int cnt = 0;
+  private Long cnt = 0L;
 
   @Before
   public void setUp() throws Exception {
@@ -26,18 +27,24 @@ public class ZookeeperReadWriteLockTest {
 
   @Test
   public void test1() throws InterruptedException {
-    CountDownLatch count = new CountDownLatch(100);
-    for (int i = 0; i < 100; i++) {
-      executorService.submit(
-          () -> {
-            final ReadLock readLock = zookeeperLock.readLock();
-            readLock.lock();
-            cnt++;
-            count.countDown();
-            readLock.unLock();
-          });
+    while (true) {
+      cnt = 0L;
+      final WriteLock writeLock = zookeeperLock.writeLock();
+      CountDownLatch count = new CountDownLatch(100);
+      for (int i = 0; i < 100; i++) {
+        executorService.submit(
+            () -> {
+              writeLock.lock();
+              cnt++;
+              writeLock.unLock();
+              count.countDown();
+            });
+      }
+      count.await();
+      System.out.println(cnt);
+      if (cnt < 100) {
+        System.out.println(cnt);
+      }
     }
-    count.await();
-    System.out.println(cnt);
   }
 }
