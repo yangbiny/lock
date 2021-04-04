@@ -2,8 +2,6 @@ package com.impassive.zookeeper.distribute;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooKeeper;
 
 /**
