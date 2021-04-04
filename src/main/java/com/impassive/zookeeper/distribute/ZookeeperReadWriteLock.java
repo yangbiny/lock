@@ -48,13 +48,6 @@ public class ZookeeperReadWriteLock {
         log.error("create path error", e);
       }
     }
-
-    @Override
-    public void process(WatchedEvent event) {
-      if (event.getType() == EventType.NodeDeleted) {
-        wakeUp();
-      }
-    }
   }
 
   @Slf4j
@@ -74,8 +67,5 @@ public class ZookeeperReadWriteLock {
         log.error("unlock write lock error : ", e);
       }
     }
-
-    @Override
-    public void process(WatchedEvent event) {}
   }
 }
