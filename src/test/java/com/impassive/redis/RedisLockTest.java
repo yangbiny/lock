@@ -1,19 +1,22 @@
 package com.impassive.redis;
 
 import com.impassive.redis.distrtbute.RedisLock;
+import com.impassive.redis.limit.RateLimiter;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.Before;
 import org.junit.Test;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 public class RedisLockTest {
   private int testNum = 0;
 
   private RedisLock redisLock;
+
+  private RateLimiter rateLimiter;
 
   @Before
   public void setUp() throws Exception {
@@ -24,7 +27,11 @@ public class RedisLockTest {
     RedisTemplate<String, Object> template =
         redisLockConfig.redisTemplate(lettuceConnectionFactory);
     template.afterPropertiesSet();
+    final StringRedisTemplate stringRedisTemplate =
+        redisLockConfig.stringRedisTemplate(lettuceConnectionFactory);
+    stringRedisTemplate.afterPropertiesSet();
     redisLock = new RedisLock(template);
+    rateLimiter = new RateLimiter(stringRedisTemplate);
   }
 
   @Test
@@ -43,5 +50,10 @@ public class RedisLockTest {
     }
     count.await();
     System.out.println(testNum);
+  }
+
+  @Test
+  public void testRateLimiter() {
+    rateLimiter.acquire(10);
   }
 }
