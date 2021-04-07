@@ -11,6 +11,7 @@ import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceSentinelConnection;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.RedisSerializer;
 
 /** @author impassivey */
@@ -32,10 +33,19 @@ public class RedisLockConfig {
   }
 
   @Bean
-  public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+  public RedisTemplate<String, Object> redisTemplate(
+      RedisConnectionFactory redisConnectionFactory) {
     RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
     redisTemplate.setConnectionFactory(redisConnectionFactory);
     redisTemplate.setKeySerializer(RedisSerializer.string());
     return redisTemplate;
+  }
+
+  @Bean
+  public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory redisConnectionFactory) {
+    StringRedisTemplate stringRedisTemplate = new StringRedisTemplate();
+    stringRedisTemplate.setConnectionFactory(redisConnectionFactory);
+    stringRedisTemplate.setKeySerializer(RedisSerializer.string());
+    return stringRedisTemplate;
   }
 }
