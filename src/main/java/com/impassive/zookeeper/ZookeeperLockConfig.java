@@ -52,7 +52,7 @@ public class ZookeeperLockConfig {
         100,
         3600,
         TimeUnit.SECONDS,
-        new ArrayBlockingQueue<>(1000),
+        new ArrayBlockingQueue<>(10000),
         r -> {
           Thread thread = new Thread(r);
           thread.setName("zookeeper");
