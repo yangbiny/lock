@@ -1,143 +1,161 @@
 package com.impassive.zookeeper.distribute;
 
-import com.google.common.collect.Lists;
-import com.impassive.Lock;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.io.IOException;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.locks.LockSupport;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.KeeperException;
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
+import java.util.concurrent.locks.Lock;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.Watcher.Event.EventType;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.data.Stat;
 
-/** @author impassivey */
-@Slf4j
-public abstract class AbstractZookeeperLock implements Lock, Watcher {
+/**
+ * @author impassivey
+ */
+public abstract class AbstractZookeeperLock implements Lock {
 
-  private ZooKeeper zooKeeperClient;
+  protected final ZooKeeper zooKeeperClient;
 
-  protected static final String LOCK_PARENT = "/lock";
+  private static final String DEFAULT_LOCK_PARENT = "/lock";
 
-  protected static final String LOCK_READ_PATH = "/lock/read";
+  protected static final String DEFAULT_LOCK_WRITE_PATH = "write";
 
-  protected static final String LOCK_WRITE_PATH = "/lock/write";
+  private final String lockParentPath;
 
-  protected final List<String> READ_LOCK = Lists.newArrayList("read");
+  private final Map<Thread, LockPath> threadLockPath = new ConcurrentHashMap<>();
 
-  protected final List<String> WRITE_LOCK = Lists.newArrayList("read", "write");
+  private final Sync sync;
 
-  private final BlockingQueue<Thread> blockingQueue = new LinkedBlockingDeque<>(100);
-
-  private final Map<Thread, Node> lockPath = new ConcurrentHashMap<>();
-
-  protected void init(ZooKeeper zooKeeper) {
-    this.zooKeeperClient = zooKeeper;
+  public AbstractZookeeperLock(String zkUrl, String lockParentPath) {
+    if (lockParentPath == null || lockParentPath.isBlank()) {
+      throw new RuntimeException("lockParentPath is null");
+    }
+    this.lockParentPath = lockParentPath;
+    this.zooKeeperClient = initZooKeeperClient(zkUrl);
+    this.sync = new Sync(this);
   }
 
-  protected void wakeUp() {
-    final Thread take = blockingQueue.peek();
-    if (take == null) {
-      return;
-    }
-    LockSupport.unpark(take);
+  public AbstractZookeeperLock(String zkUrl) {
+    this(zkUrl, DEFAULT_LOCK_PARENT);
   }
 
-  protected void addLock(Boolean write) throws KeeperException, InterruptedException {
-    final String path1 = write ? LOCK_WRITE_PATH : LOCK_READ_PATH;
-    final List<String> children = zooKeeperClient.getChildren(LOCK_PARENT, false);
-    // TODO 这里其实有问题，如果两个都同时检测通过，会出现一把锁被重复申请
-    if (CollectionUtils.isNotEmpty(children)) {
-      checkAndParkThread(children, write);
+  protected ZooKeeper initZooKeeperClient(String zkUrl) {
+    try {
+      return new ZooKeeper(zkUrl, 1000 * 3600, new ZookeeperClientWatcher(this));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
-    final String path =
-        zooKeeperClient.create(
-            path1,
-            path1.getBytes(StandardCharsets.UTF_8),
-            Ids.OPEN_ACL_UNSAFE,
-            CreateMode.EPHEMERAL_SEQUENTIAL);
-    final Stat exists = zooKeeperClient.exists(path, this);
-    if (exists == null) {
-      // TODO 获取锁失败的操作
-      return;
-    }
-    lockPath.put(Thread.currentThread(), new Node(path, exists.getVersion()));
   }
 
-  protected void checkAndParkThread(List<String> childrenLock, boolean write) {
-    if (CollectionUtils.isEmpty(childrenLock)) {
-      return;
+  protected void lock(String path) {
+    LockPath lockPath = threadLockPath.get(Thread.currentThread());
+    if (lockPath != null){
+      // 直接去 检验分布式锁 是否还是 正常的，正常直接返回
     }
-    List<String> path = write ? WRITE_LOCK : READ_LOCK;
-    boolean hasPath = false;
-    for (String s : childrenLock) {
-      for (String s1 : path) {
-        if (StringUtils.startsWithIgnoreCase(s, s1)) {
-          continue;
-        }
-        hasPath = true;
-        break;
+    // 需要申请 分布式锁的逻辑
+    // 第一步：先去 申请锁，申请 不成功就会加入到等待队列
+    sync.acquire(1);
+    // 第二步：申请成功，就去创建节点
+    int version = acquireDistribute(path, lockPath);
+
+    threadLockPath.put(Thread.currentThread(), new LockPath(path, version));
+  }
+
+  private int acquireDistribute(String path, LockPath lockPath) {
+    return 0;
+  }
+
+
+  protected boolean tryLock(String path) {
+    if (path == null || path.isBlank()) {
+      throw new RuntimeException("path is null");
+    }
+
+    return false;
+  }
+
+
+  private boolean isHeldDistributedLock() {
+    LockPath lockPath = threadLockPath.get(Thread.currentThread());
+    if (lockPath == null) {
+      return false;
+    }
+    return false;
+  }
+
+
+  static class Sync extends AbstractQueuedSynchronizer {
+
+    private final AbstractZookeeperLock abstractZookeeperLock;
+
+    Sync(AbstractZookeeperLock abstractZookeeperLock) {
+      this.abstractZookeeperLock = abstractZookeeperLock;
+    }
+
+
+    @Override
+    protected boolean tryRelease(int arg) {
+      Thread thread = Thread.currentThread();
+      if (getExclusiveOwnerThread() != thread) {
+        throw new IllegalMonitorStateException();
       }
+      int c = getState() - arg;
+      boolean free = (c == 0);
+      if (free) {
+        setExclusiveOwnerThread(null);
+      }
+      setState(c);
+      return free;
     }
-    if (hasPath) {
-      final Thread thread = Thread.currentThread();
-      blockingQueue.add(thread);
-      // 阻塞
-      LockSupport.park();
+
+    @Override
+    protected boolean tryAcquire(int arg) {
+      Thread thread = Thread.currentThread();
+      int c;
+      if ((c = getState()) > 0 && getExclusiveOwnerThread() == thread) {
+        setState(c + arg);
+        return true;
+      }
+      if (c == 0 && compareAndSetState(0, arg)) {
+        setExclusiveOwnerThread(thread);
+        return true;
+      }
+      return false;
     }
+
+    @Override
+    protected boolean isHeldExclusively() {
+      return getExclusiveOwnerThread() == Thread.currentThread()
+          && getState() > 0
+          && abstractZookeeperLock.isHeldDistributedLock();
+    }
+
   }
 
-  @Override
-  public void unLock() {
-    try {
-      Thread.sleep(30000L);
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    }
-    final Thread thread = Thread.currentThread();
-    final Node node = lockPath.get(thread);
-    if (node == null || StringUtils.isEmpty(node.path)) {
-      // TODO 说明没有获取到锁，却在释放锁，需要抛出异常
-      return;
-    }
-    try {
-      zooKeeperClient.delete(node.path, node.version);
-      wakeUp();
-    } catch (InterruptedException e) {
-      log.error("unlock error : {},{}", thread, node, e);
-    } catch (KeeperException e) {
-      log.error("keeper error ", e);
-    }
-  }
+  static class LockPath {
 
-  @Override
-  public void process(WatchedEvent event) {
-    if (event.getType() == EventType.NodeDeleted) {
-      wakeUp();
-    }
-  }
+    String path;
+    Integer version;
 
-  @Getter
-  static class Node {
-
-    private final String path;
-
-    private final Integer version;
-
-    public Node(String path, Integer version) {
+    public LockPath(String path, Integer version) {
       this.path = path;
       this.version = version;
     }
   }
+
+  static class ZookeeperClientWatcher implements Watcher {
+
+    private final AbstractZookeeperLock abstractZookeeperLock;
+
+    public ZookeeperClientWatcher(AbstractZookeeperLock abstractZookeeperLock) {
+      this.abstractZookeeperLock = abstractZookeeperLock;
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+
+    }
+  }
+
 }
+
