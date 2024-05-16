@@ -24,7 +24,6 @@ public abstract class AbstractZookeeperLock implements Lock {
 
   private final Map<Thread, LockPath> threadLockPath = new ConcurrentHashMap<>();
 
-  private final Sync sync;
 
   public AbstractZookeeperLock(String zkUrl, String lockParentPath) {
     if (lockParentPath == null || lockParentPath.isBlank()) {
@@ -32,7 +31,6 @@ public abstract class AbstractZookeeperLock implements Lock {
     }
     this.lockParentPath = lockParentPath;
     this.zooKeeperClient = initZooKeeperClient(zkUrl);
-    this.sync = new Sync(this);
   }
 
   public AbstractZookeeperLock(String zkUrl) {
@@ -54,7 +52,6 @@ public abstract class AbstractZookeeperLock implements Lock {
     }
     // 需要申请 分布式锁的逻辑
     // 第一步：先去 申请锁，申请 不成功就会加入到等待队列
-    sync.acquire(1);
     // 第二步：申请成功，就去创建节点
     int version = acquireDistribute(path, lockPath);
 
