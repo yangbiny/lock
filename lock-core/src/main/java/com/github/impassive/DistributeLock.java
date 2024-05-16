@@ -53,6 +53,6 @@ public interface DistributeLock {
   /**
    * 解锁
    */
-  void unlock();
+  void unlock(List<String> keys);
 
 }
